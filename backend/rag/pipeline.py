@@ -1,6 +1,7 @@
 import os
 import fitz
 import time
+import json
 from typing import List, Dict, Any
 
 from langchain_text_splitters import RecursiveCharacterTextSplitter
@@ -85,3 +86,81 @@ class RAGPipeline:
             "answer": answer,
             "sources": sources
         }
+
+    def generate_quiz(self, num_questions: int = 5) -> Dict[str, Any]:
+        """Generate a structured MCQ quiz from the loaded documents."""
+        self._init_models()
+        if self.vector_store is None:
+            return {"quiz": None, "error": "No documents uploaded yet."}
+
+        # Retrieve a broad sample of content for quiz generation
+        retriever = self.vector_store.as_retriever(search_kwargs={"k": 10})
+        docs = retriever.invoke("key concepts topics main ideas summary")
+
+        context = "\n\n".join([
+            f"[Source: {d.metadata.get('source')} Page {d.metadata.get('page')}] {d.page_content}"
+            for d in docs
+        ])
+
+        prompt_text = (
+            f"You are a quiz generator. Based on the document content below, generate exactly {num_questions} "
+            "multiple-choice questions.\n\n"
+            "STRICT RULES:\n"
+            "- Return ONLY valid JSON. No markdown, no code fences, no explanation.\n"
+            "- The JSON must be a single array of objects.\n"
+            "- Each object must have exactly these keys:\n"
+            '  "question": a clear question string\n'
+            '  "options": an array of exactly 4 distinct answer strings\n'
+            '  "answer": the exact text of the correct option (must match one of the options exactly)\n\n'
+            "Example format:\n"
+            '[{"question":"What is X?","options":["A","B","C","D"],"answer":"B"}]\n\n'
+            f"Document Content:\n{context}"
+        )
+
+        try:
+            response = self.llm.generate_content(prompt_text)
+            raw = response.text.strip()
+
+            # Extract JSON array safely even if extra text is present
+            start = raw.find("[")
+            end = raw.rfind("]")
+
+            if start != -1 and end != -1:
+                raw = raw[start:end + 1]
+            else:
+                raise ValueError("No valid JSON array found in response.")
+
+            for _ in range(2):
+                try:
+                    quiz_data = json.loads(raw)
+                    break
+                except Exception:
+                    response = self.llm.generate_content(prompt_text)
+                    raw = response.text.strip()
+
+                    start = raw.find("[")
+                    end = raw.rfind("]")
+
+                    if start != -1 and end != -1:
+                        raw = raw[start:end + 1]
+                    else:
+                        continue
+            else:
+                raise ValueError("Failed to parse quiz JSON after retry")
+
+            # Validate structure
+            if not isinstance(quiz_data, list):
+                raise ValueError("Response is not a JSON array.")
+            for item in quiz_data:
+                if not all(k in item for k in ("question", "options", "answer")):
+                    raise ValueError("Missing required keys in quiz item.")
+                if not isinstance(item["options"], list) or len(item["options"]) != 4:
+                    raise ValueError("Each question must have exactly 4 options.")
+
+            return {"quiz": quiz_data}
+
+        except (json.JSONDecodeError, ValueError) as e:
+            return {
+                "quiz": None,
+                "error": f"Failed to parse quiz response: {str(e)}"
+            }

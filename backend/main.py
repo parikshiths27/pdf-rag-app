@@ -27,6 +27,9 @@ rag_pipeline = RAGPipeline()
 class QueryRequest(BaseModel):
     query: str
 
+class QuizRequest(BaseModel):
+    num_questions: int = 5
+
 @app.post("/upload")
 def upload_pdf(file: UploadFile = File(...)):
     if not file.filename.endswith(".pdf"):
@@ -57,6 +60,17 @@ def query_endpoint(req: QueryRequest):
         return response
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/quiz")
+def quiz_endpoint(req: QuizRequest):
+    try:
+        result = rag_pipeline.generate_quiz(num_questions=req.num_questions)
+        if result.get("quiz") is None:
+            # Return error as JSON without crashing
+            return {"quiz": None, "error": result.get("error", "Unknown error generating quiz.")}
+        return result
+    except Exception as e:
+        return {"quiz": None, "error": str(e)}
 
 if __name__ == "__main__":
     import uvicorn
