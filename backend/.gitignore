@@ -1,0 +1,8 @@
+venv/
+__pycache__/
+.env
+*.pdf
+temp_*/
+out*.txt
+generate_models.txt
+models.txt
