@@ -1,5 +1,5 @@
-import os
-os.environ["GEMINI_API_KEY"] = "AIzaSyAnqMxaXKmg9thgjhCDzgpYXWhRUqBwEx0"
+from dotenv import load_dotenv
+load_dotenv()
 import fitz
 from rag.pipeline import RAGPipeline
 import traceback
